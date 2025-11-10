@@ -8,22 +8,7 @@ from pybotvac import Robot
 from pybotvac.exceptions import NeatoRobotException
 import voluptuous as vol
 
-from homeassistant.components.vacuum import (
-    ATTR_STATUS,
-    STATE_CLEANING,
-    STATE_DOCKED,
-    STATE_IDLE,
-    STATE_PAUSED,
-    SUPPORT_BATTERY,
-    SUPPORT_CLEAN_SPOT,
-    SUPPORT_LOCATE,
-    SUPPORT_PAUSE,
-    SUPPORT_RETURN_HOME,
-    SUPPORT_START,
-    SUPPORT_STATE,
-    SUPPORT_STOP,
-    StateVacuumEntity,
-)
+from homeassistant.components.vacuum import StateVacuumEntity, VacuumEntityFeature
 from homeassistant.const import ATTR_MODE
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity import DeviceInfo
@@ -47,14 +32,14 @@ _LOGGER = logging.getLogger(__name__)
 
 
 SUPPORT_VORWERK = (
-    SUPPORT_BATTERY
-    | SUPPORT_PAUSE
-    | SUPPORT_RETURN_HOME
-    | SUPPORT_STOP
-    | SUPPORT_START
-    | SUPPORT_CLEAN_SPOT
-    | SUPPORT_STATE
-    | SUPPORT_LOCATE
+    VacuumEntityFeature.BATTERY
+    | VacuumEntityFeature.PAUSE
+    | VacuumEntityFeature.RETURN_HOME
+    | VacuumEntityFeature.STOP
+    | VacuumEntityFeature.START
+    | VacuumEntityFeature.CLEAN_SPOT
+    | VacuumEntityFeature.STATE
+    | VacuumEntityFeature.LOCATE
 )
 
 
@@ -143,7 +128,7 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
         data: dict[str, Any] = {}
 
         if self._state.status is not None:
-            data[ATTR_STATUS] = self._state.status
+            data["status"] = self._state.status
 
         return data
 
@@ -157,9 +142,9 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
         if not self._state:
             return
         try:
-            if self._state.state == STATE_IDLE or self._state.state == STATE_DOCKED:
+            if self._state.state == 'idle' or self._state.state == 'docked':
                 self.robot.start_cleaning()
-            elif self._state.state == STATE_PAUSED:
+            elif self._state.state == 'paused':
                 self.robot.resume_cleaning()
         except NeatoRobotException as ex:
             _LOGGER.error(
@@ -178,7 +163,7 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
     def return_to_base(self, **kwargs: Any) -> None:
         """Set the vacuum cleaner to return to the dock."""
         try:
-            if self._state.state == STATE_CLEANING:
+            if self._state.state == 'cleaning':
                 self.robot.pause_cleaning()
             self.robot.send_to_base()
         except NeatoRobotException as ex:
@@ -235,3 +220,24 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
             _LOGGER.error(
                 "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
             )
+
+    async def async_start(self) -> None:
+        await self.hass.async_add_executor_job(self.start)
+
+    async def async_stop(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.stop, **kwargs)
+
+    async def async_pause(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.pause, **kwargs)
+
+    async def async_return_to_base(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.return_to_base, **kwargs)
+
+    async def async_clean_spot(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.clean_spot, **kwargs)
+
+    async def async_locate(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.locate, **kwargs)
+
+    async def async_send_command(self, command: str, params: dict | None = None) -> None:
+        await self.hass.async_add_executor_job(self.send_command, command, params)

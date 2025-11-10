@@ -10,14 +10,14 @@ from pybotvac.robot import Robot
 from pybotvac.vorwerk import Vorwerk
 import voluptuous as vol
 
-from homeassistant.components.vacuum import (
-    STATE_CLEANING,
-    STATE_DOCKED,
-    STATE_ERROR,
-    STATE_IDLE,
-    STATE_PAUSED,
-    STATE_RETURNING,
-)
+# Compatibility: define vacuum state strings locally (Home Assistant removed legacy constants)
+STATE_CLEANING = "cleaning"
+STATE_DOCKED = "docked"
+STATE_ERROR = "error"
+STATE_IDLE = "idle"
+STATE_PAUSED = "paused"
+STATE_RETURNING = "returning"
+
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.exceptions import ConfigEntryNotReady
 import homeassistant.helpers.config_validation as cv
@@ -102,10 +102,7 @@ async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry) -> bool
         ]
     }
 
-    for component in VORWERK_PLATFORMS:
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(entry, component)
-        )
+    await hass.config_entries.async_forward_entry_setups(entry, VORWERK_PLATFORMS)
 
     return True
 
