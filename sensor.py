@@ -22,9 +22,6 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-BATTERY = "Battery"
-
-
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the Vorwerk sensor using config entry."""
     _LOGGER.debug("Adding sensors for vorwerk robots")
@@ -49,7 +46,7 @@ class VorwerkSensor(CoordinatorEntity, Entity):
         super().__init__(coordinator)
         self.robot: Robot = robot_state.robot
         self._state: VorwerkState = robot_state
-        self._robot_name = f"{self.robot.name} {BATTERY}"
+        self._robot_name = f"{self.robot.name} {SensorDeviceClass.BATTERY}"
         self._robot_serial = self.robot.serial
 
     @cached_property

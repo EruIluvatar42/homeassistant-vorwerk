@@ -46,8 +46,7 @@ STATE_TO_ACTIVITY: dict[str, VacuumActivity] = {
 
 
 SUPPORT_VORWERK = (
-    VacuumEntityFeature.BATTERY
-    | VacuumEntityFeature.PAUSE
+    VacuumEntityFeature.PAUSE
     | VacuumEntityFeature.RETURN_HOME
     | VacuumEntityFeature.STOP
     | VacuumEntityFeature.START
@@ -110,11 +109,6 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
     def supported_features(self) -> VacuumEntityFeature:
         """Flag vacuum cleaner robot features that are supported."""
         return SUPPORT_VORWERK
-
-    @cached_property
-    def battery_level(self) -> int | None:
-        """Return the battery level of the vacuum cleaner."""
-        return int(self._state.battery_level) if self._state.battery_level else None
 
     @property
     def available(self) -> bool:    # type: ignore[override]
