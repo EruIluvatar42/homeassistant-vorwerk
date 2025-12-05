@@ -8,15 +8,19 @@ from pybotvac import Robot
 from pybotvac.exceptions import NeatoRobotException
 import voluptuous as vol
 
-from homeassistant.components.vacuum import StateVacuumEntity, VacuumEntityFeature
+from homeassistant.components.vacuum import (
+    StateVacuumEntity,
+    VacuumEntityFeature,
+)
+from homeassistant.components.vacuum.const import VacuumActivity
 from homeassistant.const import ATTR_MODE
 from homeassistant.helpers import config_validation as cv, entity_platform
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
-
+from propcache import cached_property
 from . import VorwerkState
 from .const import (
     ATTR_CATEGORY,
@@ -29,6 +33,15 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+STATE_TO_ACTIVITY: dict[str, VacuumActivity] = {
+    "cleaning": VacuumActivity.CLEANING,
+    "docked": VacuumActivity.DOCKED,
+    "idle": VacuumActivity.IDLE,
+    "paused": VacuumActivity.PAUSED,
+    "returning": VacuumActivity.RETURNING,
+    "error": VacuumActivity.ERROR,
+}
 
 
 SUPPORT_VORWERK = (
@@ -87,42 +100,50 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
         self._robot_serial = self.robot.serial
         self._robot_boundaries: list = []
 
-    @property
+    @cached_property
     def name(self) -> str:
         """Return the name of the device."""
         return self._name
 
-    @property
-    def supported_features(self) -> int:
+    @cached_property
+    def supported_features(self) -> VacuumEntityFeature:
         """Flag vacuum cleaner robot features that are supported."""
         return SUPPORT_VORWERK
 
-    @property
+    @cached_property
     def battery_level(self) -> int | None:
         """Return the battery level of the vacuum cleaner."""
         return int(self._state.battery_level) if self._state.battery_level else None
 
-    @property
+    @cached_property
     def available(self) -> bool:
         """Return if the robot is available."""
         return self._state.available
 
-    @property
+    @cached_property
     def icon(self) -> str:
         """Return specific icon."""
         return "mdi:robot-vacuum-variant"
 
+    @cached_property
+    def activity(self) -> VacuumActivity | None:
+        """Return the current activity using the VacuumActivity enum."""
+        if not self._state or not self._state.state:
+            return None
+        return STATE_TO_ACTIVITY.get(self._state.state)
+
     @property
     def state(self) -> str | None:
         """Return the status of the vacuum cleaner."""
-        return self._state.state if self._state else None
+        activity = self.activity
+        return activity.value if activity else None
 
-    @property
+    @cached_property
     def unique_id(self) -> str:
         """Return a unique ID."""
         return self._robot_serial
 
-    @property
+    @cached_property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes of the vacuum cleaner."""
         data: dict[str, Any] = {}
@@ -132,7 +153,7 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
 
         return data
 
-    @property
+    @cached_property
     def device_info(self) -> DeviceInfo:
         """Device info for robot."""
         return self._state.device_info
@@ -199,7 +220,7 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
             )
 
     def vorwerk_custom_cleaning(
-        self, mode: str, navigation: str, category: str, zone: str | None = None
+        self, mode: int, navigation: int, category: str, zone: str | None = None
     ) -> None:
         """Zone cleaning service call."""
         boundary_id = None
@@ -239,5 +260,5 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
     async def async_locate(self, **kwargs: Any) -> None:
         await self.hass.async_add_executor_job(self.locate, **kwargs)
 
-    async def async_send_command(self, command: str, params: dict | None = None) -> None:
+    async def async_send_command(self, command: str, params: dict[str, Any] | list[Any] | None = None, **kwargs: Any) -> None:
         await self.hass.async_add_executor_job(self.send_command, command, params)
