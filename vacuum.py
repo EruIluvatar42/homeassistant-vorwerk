@@ -6,6 +6,7 @@ from typing import Any
 
 from pybotvac import Robot
 from pybotvac.exceptions import NeatoRobotException
+from propcache import cached_property
 import voluptuous as vol
 
 from homeassistant.components.vacuum import (
@@ -13,6 +14,7 @@ from homeassistant.components.vacuum import (
     VacuumEntityFeature,
 )
 from homeassistant.components.vacuum.const import VacuumActivity
+from homeassistant.core import callback
 from homeassistant.const import ATTR_MODE
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -20,7 +22,6 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
-from propcache import cached_property
 from . import VorwerkState
 from .const import (
     ATTR_CATEGORY,
@@ -115,28 +116,15 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
         """Return the battery level of the vacuum cleaner."""
         return int(self._state.battery_level) if self._state.battery_level else None
 
-    @cached_property
-    def available(self) -> bool:
+    @property
+    def available(self) -> bool:    # type: ignore[override]
         """Return if the robot is available."""
-        return self._state.available
+        return bool(self._state.available and self.coordinator.last_update_success)
 
     @cached_property
     def icon(self) -> str:
         """Return specific icon."""
         return "mdi:robot-vacuum-variant"
-
-    @cached_property
-    def activity(self) -> VacuumActivity | None:
-        """Return the current activity using the VacuumActivity enum."""
-        if not self._state or not self._state.state:
-            return None
-        return STATE_TO_ACTIVITY.get(self._state.state)
-
-    @property
-    def state(self) -> str | None:
-        """Return the status of the vacuum cleaner."""
-        activity = self.activity
-        return activity.value if activity else None
 
     @cached_property
     def unique_id(self) -> str:
@@ -157,6 +145,14 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
     def device_info(self) -> DeviceInfo:
         """Device info for robot."""
         return self._state.device_info
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update cached attributes from coordinator data."""
+        self._attr_activity = (
+            STATE_TO_ACTIVITY.get(self._state.state) if self._state.state else None
+        )
+        super()._handle_coordinator_update()
 
     def start(self) -> None:
         """Start cleaning or resume cleaning."""
