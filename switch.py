@@ -3,7 +3,7 @@ import logging
 
 from pybotvac.exceptions import NeatoRobotException
 from pybotvac.robot import Robot
-
+from propcache import cached_property
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.helpers.entity import ToggleEntity
 from homeassistant.helpers.update_coordinator import (
@@ -52,27 +52,27 @@ class VorwerkScheduleSwitch(CoordinatorEntity, ToggleEntity):
         self._state: VorwerkState = robot_state
         self._robot_serial = self.robot.serial
 
-    @property
+    @cached_property
     def name(self):
         """Return the name of the switch."""
         return self._robot_name
 
     @property
-    def available(self):
+    def available(self):    # type: ignore[override]
         """Return True if entity is available."""
         return self._state.available
 
-    @property
+    @cached_property
     def unique_id(self):
         """Return a unique ID."""
         return self._robot_serial
 
-    @property
+    @cached_property
     def is_on(self):
         """Return true if switch is on."""
         return bool(self._state.schedule_enabled)
 
-    @property
+    @cached_property
     def device_info(self):
         """Device info for robot."""
         return self._state.device_info

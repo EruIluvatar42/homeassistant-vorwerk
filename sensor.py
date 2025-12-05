@@ -2,7 +2,7 @@
 import logging
 
 from pybotvac.robot import Robot
-
+from propcache import cached_property
 from homeassistant.components.sensor import DEVICE_CLASS_BATTERY
 from homeassistant.const import PERCENTAGE
 from homeassistant.helpers.entity import Entity
@@ -50,37 +50,37 @@ class VorwerkSensor(CoordinatorEntity, Entity):
         self._robot_name = f"{self.robot.name} {BATTERY}"
         self._robot_serial = self.robot.serial
 
-    @property
+    @cached_property
     def name(self):
         """Return the name of this sensor."""
         return self._robot_name
 
-    @property
+    @cached_property
     def unique_id(self):
         """Return unique ID."""
         return self._robot_serial
 
-    @property
+    @cached_property
     def device_class(self):
         """Return the device class."""
         return DEVICE_CLASS_BATTERY
 
     @property
-    def available(self):
+    def available(self):    # type: ignore[override]
         """Return availability."""
         return self._state.available
 
-    @property
+    @cached_property
     def state(self):
         """Return the state."""
         return self._state.battery_level
 
-    @property
+    @cached_property
     def unit_of_measurement(self):
         """Return unit of measurement."""
         return PERCENTAGE
 
-    @property
+    @cached_property
     def device_info(self):
         """Device info for robot."""
         return self._state.device_info
