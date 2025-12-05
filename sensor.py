@@ -3,7 +3,7 @@ import logging
 
 from pybotvac.robot import Robot
 from propcache import cached_property
-from homeassistant.components.sensor import DEVICE_CLASS_BATTERY
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import PERCENTAGE
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import (
@@ -40,6 +40,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class VorwerkSensor(CoordinatorEntity, Entity):
     """Vorwerk sensor."""
 
+    _attr_device_class: str | SensorDeviceClass = SensorDeviceClass.BATTERY
+
     def __init__(
         self, robot_state: VorwerkState, coordinator: DataUpdateCoordinator
     ) -> None:
@@ -59,11 +61,6 @@ class VorwerkSensor(CoordinatorEntity, Entity):
     def unique_id(self):
         """Return unique ID."""
         return self._robot_serial
-
-    @cached_property
-    def device_class(self):
-        """Return the device class."""
-        return DEVICE_CLASS_BATTERY
 
     @property
     def available(self):    # type: ignore[override]
