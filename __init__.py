@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, cast
 
 from pybotvac.exceptions import NeatoException, NeatoRobotException
 from pybotvac.robot import Robot
@@ -21,7 +21,7 @@ STATE_RETURNING = "returning"
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.exceptions import ConfigEntryNotReady
 import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.core import HomeAssistant 
@@ -110,10 +110,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 def _create_coordinator(
     hass: HomeAssistant, robot_state: VorwerkState
-) -> DataUpdateCoordinator:
-    async def async_update_data():
+) -> DataUpdateCoordinator[dict[str, Any]]:
+    async def async_update_data() -> dict[str, Any]:
         """Fetch data from API endpoint."""
         await hass.async_add_executor_job(robot_state.update)
+        # Return the latest robot state so it ends up in coordinator.data
+        return cast(dict[str, Any], robot_state.robot_state)
 
     return DataUpdateCoordinator(
         hass,
@@ -171,8 +173,8 @@ class VorwerkState:
     def __init__(self, robot: Robot) -> None:
         """Initialize new vorwerk vacuum state."""
         self.robot = robot
-        self.robot_state: dict[Any, Any] = {}
-        self.robot_info: dict[Any, Any] = {}
+        self.robot_state: dict[str, Any] = {}
+        self.robot_info: dict[str, Any] = {}
 
     @property
     def available(self) -> bool:
