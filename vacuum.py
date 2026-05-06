@@ -27,11 +27,18 @@ from .const import (
     ATTR_CATEGORY,
     ATTR_NAVIGATION,
     ATTR_ZONE,
+    MODE,
+    ROBOT_STATE_BUSY,
     VORWERK_DOMAIN,
     VORWERK_ROBOT_API,
     VORWERK_ROBOT_COORDINATOR,
     VORWERK_ROBOTS,
 )
+
+FAN_SPEED_ECO = "Eco"
+FAN_SPEED_TURBO = "Turbo"
+FAN_SPEEDS = [FAN_SPEED_ECO, FAN_SPEED_TURBO]
+_MODE_TO_FAN_SPEED = {v: k for k, v in MODE.items()}  # {"Eco": 1, "Turbo": 2}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +60,7 @@ SUPPORT_VORWERK = (
     | VacuumEntityFeature.CLEAN_SPOT
     | VacuumEntityFeature.STATE
     | VacuumEntityFeature.LOCATE
+    | VacuumEntityFeature.FAN_SPEED
 )
 
 
@@ -99,6 +107,7 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
         self._name = f"{self.robot.name}"
         self._robot_serial = self.robot.serial
         self._robot_boundaries: list = []
+        self._fan_speed: str = FAN_SPEED_TURBO  # default until first update
 
     @cached_property
     def name(self) -> str:
@@ -140,12 +149,33 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
         """Device info for robot."""
         return self._state.device_info
 
+    @property
+    def fan_speed(self) -> str:
+        """Return the current fan speed (cleaning mode)."""
+        return self._fan_speed
+
+    @cached_property
+    def fan_speed_list(self) -> list[str]:
+        """Return the list of available fan speeds."""
+        return FAN_SPEEDS
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Update cached attributes from coordinator data."""
         self._attr_activity = (
             STATE_TO_ACTIVITY.get(self._state.state) if self._state.state else None
         )
+        # Sync fan speed from robot state while cleaning
+        robot_state = self._state.robot_state
+        if (
+            robot_state
+            and robot_state.get("state") == ROBOT_STATE_BUSY
+            and "cleaning" in robot_state
+        ):
+            mode_num = robot_state["cleaning"].get("mode")
+            fan_speed = MODE.get(mode_num)
+            if fan_speed is not None:
+                self._fan_speed = fan_speed
         super()._handle_coordinator_update()
 
     def start(self) -> None:
@@ -154,7 +184,8 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
             return
         try:
             if self._state.state == 'idle' or self._state.state == 'docked':
-                self.robot.start_cleaning()
+                mode = _MODE_TO_FAN_SPEED.get(self._fan_speed, 2)
+                self.robot.start_cleaning(mode=mode)
             elif self._state.state == 'paused':
                 self.robot.resume_cleaning()
         except NeatoRobotException as ex:
@@ -231,6 +262,14 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
             _LOGGER.error(
                 "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
             )
+
+    async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
+        """Set the fan speed (cleaning mode)."""
+        if fan_speed not in FAN_SPEEDS:
+            _LOGGER.error("Invalid fan speed '%s' for '%s'", fan_speed, self.entity_id)
+            return
+        self._fan_speed = fan_speed
+        self.async_write_ha_state()
 
     async def async_start(self) -> None:
         await self.hass.async_add_executor_job(self.start)
