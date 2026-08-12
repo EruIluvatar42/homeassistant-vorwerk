@@ -1,6 +1,6 @@
 # Repository Archived
 
-**Notice:** This repository is now archived and will no longer be maintained.  
+**Notice:** This repository is now archived and will no longer be maintained. 
 
 The integration was created to support Vorwerk Vacuum Cleaner robots. As I no longer own such a device, I am unable to continue development or provide support.  
 
