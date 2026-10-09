@@ -5,13 +5,8 @@ import logging
 from typing import Any
 
 from pybotvac.robot import Robot
-
-from homeassistant.components.sensor import SensorDeviceClass
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import PERCENTAGE
-from homeassistant.helpers.entity import Entity
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -27,10 +22,8 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-BATTERY = "Battery"
 
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
+async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the Vorwerk sensor using config entry."""
     _LOGGER.debug("Adding sensors for vorwerk robots")
     async_add_entities(
@@ -42,8 +35,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     )
 
 
-class VorwerkSensor(CoordinatorEntity, Entity):
-    """Vorwerk sensor."""
+class VorwerkSensor(CoordinatorEntity, SensorEntity): # type: ignore
+    """Vorwerk battery sensor."""
+
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_native_unit_of_measurement = PERCENTAGE
 
     def __init__(
         self, robot_state: VorwerkState, coordinator: DataUpdateCoordinator[Any]
@@ -52,40 +48,20 @@ class VorwerkSensor(CoordinatorEntity, Entity):
         super().__init__(coordinator)
         self.robot: Robot = robot_state.robot
         self._state: VorwerkState = robot_state
-        self._robot_name = f"{self.robot.name} {BATTERY}"
-        self._robot_serial = self.robot.serial
+        self._attr_name = f"{self.robot.name} Battery"
+        self._attr_unique_id = self.robot.serial
+        self._attr_device_info = self._state.device_info
+        self._refresh_state()
 
-    @property
-    def name(self) -> str:
-        """Return the name of this sensor."""
-        return self._robot_name
+    def _refresh_state(self) -> None:
+        """Refresh cached values from the robot state."""
+        level = self._state.battery_level
+        self._attr_native_value = int(level) if level is not None else None
+        self._attr_available = bool(
+            self._state.available and self.coordinator.last_update_success
+        )
 
-    @property
-    def unique_id(self) -> str:
-        """Return unique ID."""
-        return self._robot_serial
-
-    @property
-    def device_class(self) -> SensorDeviceClass | None:
-        """Return the device class."""
-        return SensorDeviceClass.BATTERY
-
-    @property
-    def available(self) -> bool:
-        """Return availability."""
-        return self._state.available
-
-    @property
-    def state(self) -> str | None:
-        """Return the state."""
-        return self._state.battery_level
-
-    @property
-    def unit_of_measurement(self) -> str:
-        """Return unit of measurement."""
-        return PERCENTAGE
-
-    @property
-    def device_info(self):
-        """Device info for robot."""
-        return self._state.device_info
+    def _handle_coordinator_update(self) -> None:
+        """Update state from coordinator data."""
+        self._refresh_state()
+        super()._handle_coordinator_update()

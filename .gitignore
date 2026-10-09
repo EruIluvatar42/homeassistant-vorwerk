@@ -130,3 +130,18 @@ dmypy.json
 
 
 sample.py
+
+# VS Code
+*.code-workspace
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# VS Code history
+.history/
+
+# VS Code remote
+.vscode-server/
+.vscode-remote/

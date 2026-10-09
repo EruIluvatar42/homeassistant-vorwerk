@@ -4,46 +4,67 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from pybotvac import Robot
+from pybotvac.exceptions import NeatoRobotException
+from propcache import cached_property
 import voluptuous as vol
 from pybotvac.robot import Robot
 from pybotvac.exceptions import NeatoRobotException
 
 from homeassistant.components.vacuum import (
-    ATTR_STATUS,
     StateVacuumEntity,
     VacuumEntityFeature,
 )
+from homeassistant.components.vacuum.const import VacuumActivity
+from homeassistant.core import callback
 from homeassistant.const import ATTR_MODE
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import config_validation as cv, entity_platform
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
-
 from . import VorwerkState
 from .const import (
     ATTR_CATEGORY,
     ATTR_NAVIGATION,
     ATTR_ZONE,
+    MODE,
+    ROBOT_STATE_BUSY,
     VORWERK_DOMAIN,
     VORWERK_ROBOT_API,
     VORWERK_ROBOT_COORDINATOR,
     VORWERK_ROBOTS,
 )
 
+FAN_SPEED_ECO = "Eco"
+FAN_SPEED_TURBO = "Turbo"
+FAN_SPEEDS = [FAN_SPEED_ECO, FAN_SPEED_TURBO]
+_MODE_TO_FAN_SPEED = {v: k for k, v in MODE.items()}  # {"Eco": 1, "Turbo": 2}
+
 _LOGGER = logging.getLogger(__name__)
 
-SUPPORTED_FEATURES = (
-    VacuumEntityFeature.START
-    | VacuumEntityFeature.STOP
+STATE_TO_ACTIVITY: dict[str, VacuumActivity] = {
+    "cleaning": VacuumActivity.CLEANING,
+    "docked": VacuumActivity.DOCKED,
+    "idle": VacuumActivity.IDLE,
+    "paused": VacuumActivity.PAUSED,
+    "returning": VacuumActivity.RETURNING,
+    "error": VacuumActivity.ERROR,
+}
+
+
+SUPPORT_VORWERK = (
+    VacuumEntityFeature.PAUSE
     | VacuumEntityFeature.RETURN_HOME
+    | VacuumEntityFeature.STOP
+    | VacuumEntityFeature.START
     | VacuumEntityFeature.CLEAN_SPOT
-    | VacuumEntityFeature.PAUSE
+    | VacuumEntityFeature.STATE
     | VacuumEntityFeature.LOCATE
+    | VacuumEntityFeature.FAN_SPEED
 )
 
 
@@ -85,60 +106,90 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
         self._name = f"{self.robot.name}"
         self._robot_serial = self.robot.serial
         self._robot_boundaries: list = []
-        self._attr_supported_features = SUPPORTED_FEATURES
+        self._fan_speed: str = FAN_SPEED_TURBO  # default until first update
 
-    @property
+    @cached_property
     def name(self) -> str:
         """Return the name of the device."""
         return self._name
 
-    @property
-    def supported_features(self) -> int:
+    @cached_property
+    def supported_features(self) -> VacuumEntityFeature:
         """Flag vacuum cleaner robot features that are supported."""
         return SUPPORTED_FEATURES
 
     @property
-    def battery_level(self) -> int | None:
-        """Return the battery level of the vacuum cleaner."""
-        return int(self._state.battery_level) if self._state.battery_level else None
-
-    @property
-    def available(self) -> bool:
+    def available(self) -> bool:    # type: ignore[override]
         """Return if the robot is available."""
-        return self._state.available
+        return bool(self._state.available and self.coordinator.last_update_success)
 
-    @property
+    @cached_property
     def icon(self) -> str:
         """Return specific icon."""
         return "mdi:robot-vacuum-variant"
 
-    @property
-    def state(self) -> str | None:
-        """Return the status of the vacuum cleaner."""
-        return self._state.state if self._state else None
-
-    @property
+    @cached_property
     def unique_id(self) -> str:
         """Return a unique ID."""
         return self._robot_serial
 
-    @property
+    @cached_property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes of the vacuum cleaner."""
         data: dict[str, Any] = {}
         if self._state.status is not None:
-            data[ATTR_STATUS] = self._state.status
+            data["status"] = self._state.status
+
         return data
 
-    @property
+    @cached_property
     def device_info(self) -> DeviceInfo:
         """Device info for robot."""
         return self._state.device_info
 
-    async def async_start(self) -> None:
+    @property
+    def fan_speed(self) -> str:
+        """Return the current fan speed (cleaning mode)."""
+        return self._fan_speed
+
+    @cached_property
+    def fan_speed_list(self) -> list[str]:
+        """Return the list of available fan speeds."""
+        return FAN_SPEEDS
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update cached attributes from coordinator data."""
+        self._attr_activity = (
+            STATE_TO_ACTIVITY.get(self._state.state) if self._state.state else None
+        )
+        # Sync fan speed from robot state while cleaning
+        robot_state = self._state.robot_state
+        if (
+            robot_state
+            and robot_state.get("state") == ROBOT_STATE_BUSY
+            and "cleaning" in robot_state
+        ):
+            mode_num = robot_state["cleaning"].get("mode")
+            fan_speed = MODE.get(mode_num)
+            if fan_speed is not None:
+                self._fan_speed = fan_speed
+        super()._handle_coordinator_update()
+
+    def start(self) -> None:
         """Start cleaning or resume cleaning."""
         if not self._state:
             return
+        try:
+            if self._state.state == 'idle' or self._state.state == 'docked':
+                mode = _MODE_TO_FAN_SPEED.get(self._fan_speed, 2)
+                self.robot.start_cleaning(mode=mode)
+            elif self._state.state == 'paused':
+                self.robot.resume_cleaning()
+        except NeatoRobotException as ex:
+            _LOGGER.error(
+                "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
+            )
 
         current_state = self._state.state
 
@@ -158,8 +209,17 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
 
     async def async_pause(self) -> None:
         """Pause the vacuum."""
-        def _do():
-            try:
+        try:
+            self.robot.pause_cleaning()
+        except NeatoRobotException as ex:
+            _LOGGER.error(
+                "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
+            )
+
+    def return_to_base(self, **kwargs: Any) -> None:
+        """Set the vacuum cleaner to return to the dock."""
+        try:
+            if self._state.state == 'cleaning':
                 self.robot.pause_cleaning()
             except NeatoRobotException as ex:
                 _LOGGER.error(
@@ -222,11 +282,8 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
                     "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
                 )
 
-        await self.hass.async_add_executor_job(_do)
-        await self.coordinator.async_request_refresh()
-
-    async def vorwerk_custom_cleaning(
-        self, mode: int, navigation: int, category: int, zone: str | None = None
+    def vorwerk_custom_cleaning(
+        self, mode: int, navigation: int, category: str, zone: str | None = None
     ) -> None:
         """Zone cleaning service call."""
         boundary_id = None
@@ -241,13 +298,38 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
                 return
             _LOGGER.info("Start cleaning zone '%s' with robot %s", zone, self.entity_id)
 
-        def _do():
-            try:
-                self.robot.start_cleaning(mode, navigation, category, boundary_id)
-            except NeatoRobotException as ex:
-                _LOGGER.error(
-                    "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
-                )
+        try:
+            self.robot.start_cleaning(mode, navigation, category, boundary_id)
+        except NeatoRobotException as ex:
+            _LOGGER.error(
+                "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
+            )
 
-        await self.hass.async_add_executor_job(_do)
-        await self.coordinator.async_request_refresh()
+    async def async_set_fan_speed(self, fan_speed: str, **kwargs: Any) -> None:
+        """Set the fan speed (cleaning mode)."""
+        if fan_speed not in FAN_SPEEDS:
+            _LOGGER.error("Invalid fan speed '%s' for '%s'", fan_speed, self.entity_id)
+            return
+        self._fan_speed = fan_speed
+        self.async_write_ha_state()
+
+    async def async_start(self) -> None:
+        await self.hass.async_add_executor_job(self.start)
+
+    async def async_stop(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.stop, **kwargs)
+
+    async def async_pause(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.pause, **kwargs)
+
+    async def async_return_to_base(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.return_to_base, **kwargs)
+
+    async def async_clean_spot(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.clean_spot, **kwargs)
+
+    async def async_locate(self, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.locate, **kwargs)
+
+    async def async_send_command(self, command: str, params: dict[str, Any] | list[Any] | None = None, **kwargs: Any) -> None:
+        await self.hass.async_add_executor_job(self.send_command, command, params)
