@@ -1,6 +1,10 @@
 # Repository Archived
 
-**Notice:** The original repository is now archived and will no longer be maintained.  
+**Notice:** This repository is now archived and will no longer be maintained. 
+
+The integration was created to support Vorwerk Vacuum Cleaner robots. As I no longer own such a device, I am unable to continue development or provide support.  
+
+Feel free to fork this repository if you'd like to continue its development or adapt it for your needs. Thank you to everyone who has contributed or used this integration!
 
 This fork is primarily meant for my own personal use to keep this integration functioning for my VR200. I do not plan to do any development above that.
 Currently the integrations works with Home Assistant 2025.12
