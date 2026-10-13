@@ -3,20 +3,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, cast
 
 from pybotvac.exceptions import NeatoException, NeatoRobotException
 from pybotvac.robot import Robot
 from pybotvac.vorwerk import Vorwerk
 import voluptuous as vol
 
+# Compatibility: define vacuum state strings locally (Home Assistant removed legacy constants)
+STATE_CLEANING = "cleaning"
+STATE_DOCKED = "docked"
+STATE_ERROR = "error"
+STATE_IDLE = "idle"
+STATE_PAUSED = "paused"
+STATE_RETURNING = "returning"
+
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.exceptions import ConfigEntryNotReady
 import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.core import HomeAssistant 
 
 from .const import (
     ACTION,
@@ -58,7 +66,7 @@ VORWERK_SCHEMA = vol.Schema(
             vol.Required(VORWERK_ROBOT_SERIAL): cv.string,
             vol.Required(VORWERK_ROBOT_SECRET): cv.string,
             vol.Optional(
-                VORWERK_ROBOT_ENDPOINT, default="https://nucleo.ksecosys.com:4443"
+                VORWERK_ROBOT_ENDPOINT, default="https://nucleo.ksecosys.com:4443" # pyright: ignore[reportArgumentType]
             ): cv.string,
         }
     )
@@ -102,7 +110,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ]
     }
 
-    # Forward entry setups for all platforms at once (awaited)
     await hass.config_entries.async_forward_entry_setups(entry, VORWERK_PLATFORMS)
 
     return True
@@ -110,10 +117,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 def _create_coordinator(
     hass: HomeAssistant, robot_state: VorwerkState
-) -> DataUpdateCoordinator:
-    async def async_update_data():
+) -> DataUpdateCoordinator[dict[str, Any]]:
+    async def async_update_data() -> dict[str, Any]:
         """Fetch data from API endpoint."""
         await hass.async_add_executor_job(robot_state.update)
+        # Return the latest robot state so it ends up in coordinator.data
+        return cast(dict[str, Any], robot_state.robot_state)
 
     return DataUpdateCoordinator(
         hass,
@@ -130,7 +139,7 @@ async def _async_create_robots(hass: HomeAssistant, robot_confs: list[dict[str, 
             serial=config[VORWERK_ROBOT_SERIAL],
             secret=config[VORWERK_ROBOT_SECRET],
             traits=config.get(VORWERK_ROBOT_TRAITS, []),
-            vendor=Vorwerk(),
+            vendor=Vorwerk,
             name=config[VORWERK_ROBOT_NAME],
             endpoint=config[VORWERK_ROBOT_ENDPOINT],
         )
@@ -163,8 +172,8 @@ class VorwerkState:
     def __init__(self, robot: Robot) -> None:
         """Initialize new vorwerk vacuum state."""
         self.robot = robot
-        self.robot_state: dict[Any, Any] = {}
-        self.robot_info: dict[Any, Any] = {}
+        self.robot_state: dict[str, Any] = {}
+        self.robot_info: dict[str, Any] = {}
 
     @property
     def available(self) -> bool:
