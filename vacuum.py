@@ -176,7 +176,7 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
                 self._fan_speed = fan_speed
         super()._handle_coordinator_update()
 
-    def start(self) -> None:
+    async def start(self) -> None:
         """Start cleaning or resume cleaning."""
         if not self._state:
             return
@@ -216,12 +216,12 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
                 "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
             )
 
-    def return_to_base(self, **kwargs: Any) -> None:
+    async def return_to_base(self, **kwargs: Any) -> None:
         """Set the vacuum cleaner to return to the dock."""
         try:
             if self._state.state == 'cleaning':
                 self.robot.pause_cleaning()
-            except NeatoRobotException as ex:
+        except NeatoRobotException as ex:
                 _LOGGER.error(
                     "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
                 )
