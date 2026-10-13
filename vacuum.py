@@ -135,7 +135,36 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
         """Device info for robot."""
         return self._state.device_info
 
-    async def async_start(self) -> None:
+    @property
+    def fan_speed(self) -> str:
+        """Return the current fan speed (cleaning mode)."""
+        return self._fan_speed
+
+    @cached_property
+    def fan_speed_list(self) -> list[str]:
+        """Return the list of available fan speeds."""
+        return FAN_SPEEDS
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Update cached attributes from coordinator data."""
+        self._attr_activity = (
+            STATE_TO_ACTIVITY.get(self._state.state) if self._state.state else None
+        )
+        # Sync fan speed from robot state while cleaning
+        robot_state = self._state.robot_state
+        if (
+            robot_state
+            and robot_state.get("state") == ROBOT_STATE_BUSY
+            and "cleaning" in robot_state
+        ):
+            mode_num = robot_state["cleaning"].get("mode")
+            fan_speed = MODE.get(mode_num)
+            if fan_speed is not None:
+                self._fan_speed = fan_speed
+        super()._handle_coordinator_update()
+
+    async def start(self) -> None:
         """Start cleaning or resume cleaning."""
         if not self._state:
             return
@@ -158,10 +187,19 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
 
     async def async_pause(self) -> None:
         """Pause the vacuum."""
-        def _do():
-            try:
+        try:
+            self.robot.pause_cleaning()
+        except NeatoRobotException as ex:
+            _LOGGER.error(
+                "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
+            )
+
+    async def return_to_base(self, **kwargs: Any) -> None:
+        """Set the vacuum cleaner to return to the dock."""
+        try:
+            if self._state.state == 'cleaning':
                 self.robot.pause_cleaning()
-            except NeatoRobotException as ex:
+        except NeatoRobotException as ex:
                 _LOGGER.error(
                     "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
                 )
