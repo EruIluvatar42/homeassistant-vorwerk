@@ -8,20 +8,18 @@ from pybotvac import Robot
 from pybotvac.exceptions import NeatoRobotException
 from propcache import cached_property
 import voluptuous as vol
-from pybotvac.robot import Robot
-from pybotvac.exceptions import NeatoRobotException
 
 from homeassistant.components.vacuum import (
     StateVacuumEntity,
     VacuumEntityFeature,
 )
 from homeassistant.components.vacuum.const import VacuumActivity
-from homeassistant.core import callback
-from homeassistant.const import ATTR_MODE
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_MODE
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -116,7 +114,7 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
     @cached_property
     def supported_features(self) -> VacuumEntityFeature:
         """Flag vacuum cleaner robot features that are supported."""
-        return SUPPORTED_FEATURES
+        return SUPPORT_VORWERK
 
     @property
     def available(self) -> bool:    # type: ignore[override]
@@ -176,38 +174,28 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
                 self._fan_speed = fan_speed
         super()._handle_coordinator_update()
 
-    async def start(self) -> None:
+    def start(self, **kwargs: Any) -> None:
         """Start cleaning or resume cleaning."""
         if not self._state:
             return
+
         try:
-            if self._state.state == 'idle' or self._state.state == 'docked':
+            if self._state.state in ("idle", "docked"):
                 mode = _MODE_TO_FAN_SPEED.get(self._fan_speed, 2)
                 self.robot.start_cleaning(mode=mode)
-            elif self._state.state == 'paused':
+            elif self._state.state == "paused":
                 self.robot.resume_cleaning()
         except NeatoRobotException as ex:
             _LOGGER.error(
                 "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
             )
 
-        current_state = self._state.state
-
-        def _do():
-            try:
-                if current_state in ("idle", "docked"):
-                    self.robot.start_cleaning()
-                elif current_state == "paused":
-                    self.robot.resume_cleaning()
-            except NeatoRobotException as ex:
-                _LOGGER.error(
-                    "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
-                )
-
-        await self.hass.async_add_executor_job(_do)
+    async def async_start(self, **kwargs: Any) -> None:
+        """Start cleaning or resume cleaning."""
+        await self.hass.async_add_executor_job(self.start, **kwargs)
         await self.coordinator.async_request_refresh()
 
-    async def async_pause(self) -> None:
+    def pause(self, **kwargs: Any) -> None:
         """Pause the vacuum."""
         try:
             self.robot.pause_cleaning()
@@ -216,74 +204,72 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
                 "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
             )
 
-    async def return_to_base(self, **kwargs: Any) -> None:
-        """Set the vacuum cleaner to return to the dock."""
+    async def async_pause(self, **kwargs: Any) -> None:
+        """Pause the vacuum."""
+        await self.hass.async_add_executor_job(self.pause, **kwargs)
+        await self.coordinator.async_request_refresh()
+
+    def stop(self, **kwargs: Any) -> None:
+        """Stop the vacuum cleaner."""
         try:
-            if self._state.state == 'cleaning':
-                self.robot.pause_cleaning()
+            self.robot.stop_cleaning()
         except NeatoRobotException as ex:
-                _LOGGER.error(
-                    "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
-                )
-
-        await self.hass.async_add_executor_job(_do)
-        await self.coordinator.async_request_refresh()
-
-    async def async_return_to_base(self, **kwargs: Any) -> None:
-        """Set the vacuum cleaner to return to the dock."""
-        current_state = self._state.state
-
-        def _do():
-            try:
-                if current_state == "cleaning":
-                    self.robot.pause_cleaning()
-                self.robot.send_to_base()
-            except NeatoRobotException as ex:
-                _LOGGER.error(
-                    "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
-                )
-
-        await self.hass.async_add_executor_job(_do)
-        await self.coordinator.async_request_refresh()
+            _LOGGER.error(
+                "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
+            )
 
     async def async_stop(self, **kwargs: Any) -> None:
         """Stop the vacuum cleaner."""
-        def _do():
-            try:
-                self.robot.stop_cleaning()
-            except NeatoRobotException as ex:
-                _LOGGER.error(
-                    "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
-                )
-
-        await self.hass.async_add_executor_job(_do)
+        await self.hass.async_add_executor_job(self.stop, **kwargs)
         await self.coordinator.async_request_refresh()
 
-    async def async_locate(self, **kwargs: Any) -> None:
-        """Locate the robot by making it emit a sound."""
-        def _do():
-            try:
-                self.robot.locate()
-            except NeatoRobotException as ex:
-                _LOGGER.error(
-                    "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
-                )
+    def return_to_base(self, **kwargs: Any) -> None:
+        """Set the vacuum cleaner to return to the dock."""
+        current_state = self._state.state
+        try:
+            if current_state == "cleaning":
+                self.robot.pause_cleaning()
+            self.robot.send_to_base()
+        except NeatoRobotException as ex:
+            _LOGGER.error(
+                "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
+            )
 
-        await self.hass.async_add_executor_job(_do)
+    async def async_return_to_base(self, **kwargs: Any) -> None:
+        """Set the vacuum cleaner to return to the dock."""
+        await self.hass.async_add_executor_job(self.return_to_base, **kwargs)
         await self.coordinator.async_request_refresh()
+
+    def clean_spot(self, **kwargs: Any) -> None:
+        """Run a spot cleaning starting from the base."""
+        try:
+            self.robot.start_spot_cleaning()
+        except NeatoRobotException as ex:
+            _LOGGER.error(
+                "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
+            )
 
     async def async_clean_spot(self, **kwargs: Any) -> None:
         """Run a spot cleaning starting from the base."""
-        def _do():
-            try:
-                self.robot.start_spot_cleaning()
-            except NeatoRobotException as ex:
-                _LOGGER.error(
-                    "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
-                )
+        await self.hass.async_add_executor_job(self.clean_spot, **kwargs)
+        await self.coordinator.async_request_refresh()
+
+    def locate(self, **kwargs: Any) -> None:
+        """Locate the robot by making it emit a sound."""
+        try:
+            self.robot.locate()
+        except NeatoRobotException as ex:
+            _LOGGER.error(
+                "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
+            )
+
+    async def async_locate(self, **kwargs: Any) -> None:
+        """Locate the robot by making it emit a sound."""
+        await self.hass.async_add_executor_job(self.locate, **kwargs)
+        await self.coordinator.async_request_refresh()
 
     def vorwerk_custom_cleaning(
-        self, mode: int, navigation: int, category: str, zone: str | None = None
+        self, mode: int, navigation: int, category: int, zone: str | None = None
     ) -> None:
         """Zone cleaning service call."""
         boundary_id = None
@@ -313,23 +299,28 @@ class VorwerkConnectedVacuum(CoordinatorEntity, StateVacuumEntity):
         self._fan_speed = fan_speed
         self.async_write_ha_state()
 
-    async def async_start(self) -> None:
-        await self.hass.async_add_executor_job(self.start)
+    def send_command(
+        self,
+        command: str,
+        params: dict[str, Any] | list[Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Send a raw command to the robot."""
+        try:
+            if hasattr(self.robot, command):
+                getattr(self.robot, command)(params)
+            else:
+                _LOGGER.warning("Unsupported robot command '%s'", command)
+        except NeatoRobotException as ex:
+            _LOGGER.error(
+                "Vorwerk vacuum connection error for '%s': %s", self.entity_id, ex
+            )
 
-    async def async_stop(self, **kwargs: Any) -> None:
-        await self.hass.async_add_executor_job(self.stop, **kwargs)
-
-    async def async_pause(self, **kwargs: Any) -> None:
-        await self.hass.async_add_executor_job(self.pause, **kwargs)
-
-    async def async_return_to_base(self, **kwargs: Any) -> None:
-        await self.hass.async_add_executor_job(self.return_to_base, **kwargs)
-
-    async def async_clean_spot(self, **kwargs: Any) -> None:
-        await self.hass.async_add_executor_job(self.clean_spot, **kwargs)
-
-    async def async_locate(self, **kwargs: Any) -> None:
-        await self.hass.async_add_executor_job(self.locate, **kwargs)
-
-    async def async_send_command(self, command: str, params: dict[str, Any] | list[Any] | None = None, **kwargs: Any) -> None:
+    async def async_send_command(
+        self,
+        command: str,
+        params: dict[str, Any] | list[Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Send a raw command to the robot."""
         await self.hass.async_add_executor_job(self.send_command, command, params)
